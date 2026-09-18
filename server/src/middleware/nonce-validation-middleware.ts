@@ -22,7 +22,7 @@ const PUBLIC_MUTATIONS = [
   'IntrospectionQuery',
 ];
 
-const PUBLIC_QUERIES = [
+const PUBLIC_READS = [
   '__schema',
   '__type',
   '__typename',
@@ -33,8 +33,8 @@ function isProtectedField(field: string): boolean {
   return !PUBLIC_MUTATIONS.includes(field);
 }
 
-function isProtectedQueryField(field: string): boolean {
-  return !PUBLIC_QUERIES.includes(field);
+function isProtectedReadField(field: string): boolean {
+  return !PUBLIC_READS.includes(field);
 }
 
 export interface RequestLike {
@@ -92,27 +92,27 @@ function protectedFieldsOf(operation: OperationInfo): string[] {
     return fields;
   }
 
-  if (operation.operationType === 'query') {
-    const fields = operation.rootFields.filter(isProtectedQueryField);
+  if (operation.operationType === 'query' || operation.operationType === 'subscription') {
+    const fields = operation.rootFields.filter(isProtectedReadField);
 
     for (const field of fields) {
       if (!PROTECTED_QUERIES.includes(field)) {
-        logger.warn('Unknown query - treating as protected', { field });
+        logger.warn('Unknown read - treating as protected', {
+          field,
+          operationType: operation.operationType,
+        });
       }
     }
 
     return fields;
   }
 
-  logger.debug('Neither a query nor a mutation - nonce validation skipped', {
+  logger.debug('Operation type carries no nonce', {
     operationType: operation.operationType,
   });
   return [];
 }
 
-/**
- * GraphQL request parameters as delivered by Yoga's context factory
- */
 export interface GraphQLParamsLike {
   query?: string;
   operationName?: string | null;
@@ -161,9 +161,7 @@ export function extractOperationInfo(params: GraphQLParamsLike | undefined): Ope
     const protectedField =
       operation.operation === 'mutation'
         ? rootFields.find(isProtectedField)
-        : operation.operation === 'query'
-          ? rootFields.find(isProtectedQueryField)
-          : undefined;
+        : rootFields.find(isProtectedReadField);
 
     return {
       operationType: operation.operation,
@@ -366,8 +364,6 @@ export async function nonceValidationMiddleware(
     try {
       await NonceService.consumeNonce(nonceId);
     } catch (error) {
-      // Race condition: nonce was consumed by a concurrent request between
-      // validation and consumption. consumeNonce throws RaceConditionError.
       if (isRaceCondition(error)) {
         logNonceError(ErrorCode.NONCE_RACE_CONDITION, {
           nonce,

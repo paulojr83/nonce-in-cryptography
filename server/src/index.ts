@@ -1,14 +1,3 @@
-/**
- * Yoga GraphQL Server Entry Point
- *
- * Initializes and starts the GraphQL server with:
- * - Nonce validation middleware for CSRF protection
- * - Authentication middleware for JWT validation
- * - Error handling for graceful error responses
- * - Logger utility for structured logging
- * - Background cleanup job for nonce lifecycle management
- */
-
 import { createYoga, createSchema } from 'graphql-yoga';
 import { createServer } from 'http';
 import type { IncomingMessage } from 'http';
@@ -30,28 +19,20 @@ import {
   TransportError,
 } from './middleware/transport-middleware';
 import { NonceCleanupJob } from './jobs/nonce-cleanup-job';
-import { getNoncePolicy } from './utils/nonce-flags';
+import { ALL_OPERATIONS, disabledOperations } from './utils/nonce-flags';
 import { authResolvers } from './resolvers/auth-resolvers';
 import { queryResolvers } from './resolvers/query-resolvers';
 import { todoResolvers } from './resolvers/todo-resolvers';
 import { bootstrapStorage, shutdownStorage } from './data/bootstrap';
 import { getEnv } from './utils/env';
 
-// Configuration, read once. This is also what loads server/.env, and what
-// fails fast on a bad value - a missing production JWT_SECRET stops the
-// process here rather than at the first request that needs it.
 const env = getEnv();
 
-// The logger's levels are upper case; the environment writes them lower case
 logger.setLevel(env.logLevel.toUpperCase() as LogLevel);
 
 const PORT = env.port;
 const NODE_ENV = env.nodeEnv;
 
-/**
- * GraphQL Resolvers
- * Combines resolvers from different modules
- */
 const resolvers = {
   Query: {
     ...queryResolvers.Query,
@@ -65,17 +46,11 @@ const resolvers = {
   },
 };
 
-/**
- * Create GraphQL schema
- */
 const schema = createSchema({
   typeDefs,
   resolvers,
 });
 
-/**
- * Create Yoga GraphQL server instance
- */
 const yoga = createYoga({
   schema,
   context: async ({
@@ -85,14 +60,10 @@ const yoga = createYoga({
     request: RequestLike;
     params: GraphQLParamsLike;
   }): Promise<GraphQLContext> => {
-    // Run authentication middleware
     const authContext = await authMiddleware(request);
 
-    // Identify which GraphQL operation is being executed so the nonce
-    // middleware can tell a protected mutation from a read-only query
     const operation = extractOperationInfo(params);
 
-    // Run nonce validation middleware
     const nonceContext = await nonceValidationMiddleware(
       request,
       operation,
@@ -120,10 +91,6 @@ const yoga = createYoga({
   maskedErrors: NODE_ENV === 'production',
 });
 
-/**
- * Read a request body in full. Yoga is handed a new request built from it, so
- * the original stream is consumed here and nowhere else.
- */
 function readBody(request: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
@@ -144,20 +111,11 @@ function copyHeaders(source: IncomingMessage): Headers {
     }
   }
 
-  // The body about to be sent is not the body that arrived
   headers.delete('content-length');
 
   return headers;
 }
 
-/**
- * HTTP server.
- *
- * Everything that is not a POST - GraphiQL, CORS preflight - goes straight to
- * Yoga. A POST passes through the transport layer first: a sealed body is
- * opened before GraphQL parses it, and the answer is sealed again on the way
- * out. A plain body is untouched.
- */
 const server = createServer((request, response) => {
   if (request.method !== 'POST') {
     void yoga(request, response);
@@ -223,9 +181,6 @@ const server = createServer((request, response) => {
   })();
 });
 
-/**
- * Server lifecycle handlers
- */
 server.on('error', (error) => {
   logger.error('Server error', error);
 });
@@ -234,12 +189,7 @@ server.on('clientError', (error) => {
   logger.warn('Client error', { message: error.message });
 });
 
-/**
- * Start server
- */
 server.listen(PORT, async () => {
-  // Connect to json-server when it is available, hydrate the repositories and
-  // seed a demo account if the database is empty
   try {
     await bootstrapStorage();
   } catch (error) {
@@ -252,13 +202,13 @@ server.listen(PORT, async () => {
     graphqlEndpoint: `http://localhost:${PORT}/graphql`,
   });
 
-  // Running an operation without its nonce is a deliberate choice, so say so
-  // once at startup rather than leaving it to whoever reads the debug log
-  const { disabledOperations } = getNoncePolicy();
-  if (disabledOperations.length > 0) {
+  const exempt = disabledOperations();
+  if (exempt.length > 0) {
     logger.warn(
-      'Nonce enforcement is switched off for some operations - replay and CSRF protection are not active there',
-      { operations: disabledOperations }
+      'Nonce enforcement is switched off - replay and CSRF protection are not active there',
+      exempt.includes(ALL_OPERATIONS)
+        ? { operations: 'every operation' }
+        : { operations: exempt }
     );
   }
 
@@ -296,9 +246,7 @@ process.on('SIGTERM', () => {
   });
 });
 
-/**
- * Handle uncaught exceptions
- */
+
 process.on('uncaughtException', (error) => {
   logger.error('Uncaught Exception', error);
   process.exit(1);

@@ -3,7 +3,7 @@ import react from '@vitejs/plugin-react';
 import path from 'path';
 
 /**
- * Which operations validate a nonce, taken from the server's own .env.
+ * Which operations are exempt from the nonce, taken from the server's .env.
  *
  * The client has to know, because an operation the server is not checking
  * should travel as a plain request rather than an envelope sealed with a
@@ -14,10 +14,10 @@ import path from 'path';
  *
  * Only this key is read. Nothing else from server/.env comes near the bundle.
  */
-function nonceEnabledOperations(mode: string): string | undefined {
+function nonceDisabledOperations(mode: string): string | undefined {
   const serverEnv = loadEnv(mode, path.resolve(__dirname, '../server'), '');
 
-  return serverEnv.NONCE_ENABLED_OPERATIONS;
+  return serverEnv.NONCE_DISABLED_OPERATIONS;
 }
 
 // https://vitejs.dev/config/
@@ -59,10 +59,10 @@ export default defineConfig(({ mode }) => ({
     },
   },
   define: {
-    // `undefined` when the server sets no such variable, which is what tells
-    // the client "everything is protected" rather than "nothing is"
-    'import.meta.env.VITE_NONCE_ENABLED_OPERATIONS': JSON.stringify(
-      nonceEnabledOperations(mode)
+    // Absent means no exemptions at all, which is the default: the client
+    // then sends every operation with its nonce"
+    'import.meta.env.VITE_NONCE_DISABLED_OPERATIONS': JSON.stringify(
+      nonceDisabledOperations(mode)
     ),
   },
 }));

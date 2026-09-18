@@ -9,7 +9,11 @@ interface EnvConfig {
   sessionTtl: number;
   nonceTtl: number;
   nonceLength: number;
-  nonceEnabledOperations: string | undefined;
+  /**
+   * `NONCE_DISABLED_OPERATIONS` exactly as written. Absent or empty means no
+   * operation is exempt, which is the default: everything is protected.
+   */
+  nonceDisabledOperations: string | undefined;
   logLevel: 'debug' | 'info' | 'warn' | 'error';
 }
 
@@ -70,7 +74,7 @@ export const loadEnv = (): EnvConfig => {
     sessionTtl: readNumber('SESSION_TTL', 86_400_000),
     nonceTtl: readNumber('NONCE_TTL', 300_000),
     nonceLength: readNumber('NONCE_LENGTH', 32),
-    nonceEnabledOperations: process.env.NONCE_ENABLED_OPERATIONS,
+    nonceDisabledOperations: process.env.NONCE_DISABLED_OPERATIONS,
     logLevel: readLogLevel(),
   };
 
@@ -80,6 +84,14 @@ export const loadEnv = (): EnvConfig => {
 
   if (config.nonceLength < 32) {
     throw new Error('NONCE_LENGTH must be at least 32 bytes');
+  }
+
+  if (process.env.NONCE_ENABLED_OPERATIONS) {
+    throw new Error(
+      'NONCE_ENABLED_OPERATIONS was replaced by NONCE_DISABLED_OPERATIONS, which ' +
+        'lists the operations that do NOT validate their nonce. Everything is ' +
+        'protected unless it appears there; `*` exempts all of them.'
+    );
   }
 
   return config;

@@ -332,50 +332,48 @@ Nothing is required — every value has a working default. The ones worth knowin
 | -------- | ------- | ----------------------- |
 | `NONCE_TTL` | `300000` (5 min) | Shorter narrows the replay window |
 | `NONCE_LENGTH` | `32` | Bytes of entropy per nonce (minimum 32) |
-| `NONCE_ENABLED_OPERATIONS` | all | Which operations validate a nonce — see below |
+| `NONCE_DISABLED_OPERATIONS` | empty | Operations to run without a nonce — see below |
 | `SESSION_TTL` | `86400000` (24h) | How long a login lasts |
 | `DATABASE_URL` | `http://localhost:3001` | Where json-server is |
 | `JWT_SECRET` | dev default | **Required in production**, min 32 chars |
 
 ### Switching the nonce off, one operation at a time
 
-`NONCE_ENABLED_OPERATIONS` lists the operations that validate their nonce —
-reads and writes alike:
+Everything validates a nonce. Every query, every mutation, a subscription the
+schema grows next year — all of it, without anyone adding a name to a list,
+because the list is of exceptions:
 
-| | Fields | What validation means |
-| --- | --- | --- |
-| Mutations | `createTodo`, `updateTodo`, `deleteTodo`, `logout` | The nonce is checked **and spent** |
-| Queries | `me`, `todos`, `getTodo` | The nonce is checked and **left unspent** |
-
-A read that spent a nonce would retire a single-use token for an operation
-that changed nothing, and the page would need a fresh one for every list it
-draws. So one nonce proves the same live session across many reads, and only a
-mutation retires it.
+```bash
+NONCE_DISABLED_OPERATIONS=createTodo,me npm run dev --workspace=server
+```
 
 | Value | Effect |
 | ----- | ------ |
-| no such line (or no `.env`) | every protected operation — the default |
-| `*` | the same, said out loud |
-| `todos,updateTodo` | those two; everything else runs without a nonce |
-| empty, or `none` | nothing validates anything |
+| absent, or empty | nothing is exempt — the default |
+| `createTodo,me` | those two run without a nonce; everything else validates |
+| `*` | every operation runs without one |
 
-```bash
-NONCE_ENABLED_OPERATIONS=todos,updateTodo,deleteTodo,logout npm run dev --workspace=server
-```
+Forgetting to register a new field leaves it protected, which is the
+direction a mistake should fall in. An exempt operation is not removed from
+anything — the switch only decides whether the check runs — so taking it back
+out of the list restores the check with no code change. Rows written while a
+mutation was exempt carry `created_by_nonce_id: "nonce-disabled"`, and the
+server names the exemptions in its startup log.
 
-With that, `createTodo`, `me` and `getTodo` answer without a nonce, and the
-client sends them in the clear.
+What validation means depends on the operation:
 
-The list is read literally: what is in it validates a nonce, what is not does
-not. Only an absent line falls back to "all", so a machine with no `.env` is
-protected. A mutation left out of the list is not removed from
-`PROTECTED_MUTATIONS` (nor a query from `PROTECTED_QUERIES`) — the switch only
-decides whether the check runs — so putting it back restores the check with no
-code change. Rows written while the
-switch is off carry `created_by_nonce_id: "nonce-disabled"`, and the server
-says which mutations are exempt in its startup log.
+| | Fields | |
+| --- | --- | --- |
+| Mutations | `createTodo`, `updateTodo`, `deleteTodo`, `logout` | The nonce is checked **and spent** |
+| Reads | `me`, `todos`, `getTodo`, and any subscription | The nonce is checked and **left unspent** |
 
-The old `NONCE_DISABLED_OPERATIONS` is refused at startup rather than ignored.
+A read that spent a nonce would retire a single-use token for an operation
+that changed nothing, and the page would need a fresh one for every list it
+draws. So one nonce proves the same live session across many reads, and only
+a mutation retires it.
+
+The earlier `NONCE_ENABLED_OPERATIONS` is refused at startup rather than
+ignored — it meant the opposite.
 
 **The client follows.** An operation the server is not validating is sent as a
 plain GraphQL request — no nonce, and no envelope, since the nonce is what
@@ -389,30 +387,30 @@ keys the envelope:
                                                  "ct": "j2pZ3K5GYe4Ptqm…" }
 ```
 
-It learns which ones at build time, not over the wire: `vite.config.ts` reads
-`NONCE_ENABLED_OPERATIONS` out of `server/.env` and injects that one value
-into the bundle, so there is still a single place to change it and nothing on
-the network announces which operations are unprotected. An edit needs the dev
-server restarted — the same restart the API needs anyway.
+It learns the exceptions at build time, not over the wire: `vite.config.ts`
+reads `NONCE_DISABLED_OPERATIONS` out of `server/.env` and injects that one
+value into the bundle, so there is still a single place to change it and
+nothing on the network announces which operations are unprotected. An edit
+needs the dev server restarted — the same restart the API needs anyway.
 
 Sealing an exempt operation would still work — the server opens it either way
 — but it would show a client encrypting for a check that is not running.
 
 The client decides by parsing the document it is about to send, resolving
 fragment spreads to find the root field: `GetTodosQuery` selects nothing but
-`...GetTodosQuery_todos`, and the field the policy is keyed on, `todos`, is
+`...GetTodosQuery_todos`, and the field the switch is keyed on, `todos`, is
 inside the fragment. A wrong guess in the "no nonce needed" direction would
 have the server refuse a read the client could have sent correctly, which is
 why it is parsed rather than pattern-matched. The server parses the same
 document and remains the one that decides.
 
-What it is for: watching one mutation misbehave without it. Switch off
-`updateTodo`, replay the same request twice, and both go through — the failure
-`scripts/verify-update-failures.js` normally proves cannot happen. (With the
-switch off those checks fail, which is exactly what they are there to catch.)
-It is a development switch: an operation has no replay or CSRF protection
-while it is off. `server/src/utils/nonce-flags.ts` holds it, and exports
-`setNonceEnforcement(field, enforced)` for moving it at runtime.
+What it is for: watching one operation misbehave without the nonce. Exempt
+`updateTodo`, replay the same request twice, and both go through — the
+failure `scripts/verify-update-failures.js` normally proves cannot happen.
+(With it exempt those checks fail, which is exactly what they are there to
+catch.) It is a development switch: an operation has no replay or CSRF
+protection while it is off. `server/src/utils/nonce-flags.ts` holds it, and
+exports `setNonceEnforcement(field, enforced)` for moving it at runtime.
 
 ---
 
