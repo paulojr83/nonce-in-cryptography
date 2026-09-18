@@ -20,7 +20,11 @@ The nonce has two ways in:
 
 The rules the server applies:
 
-- **Queries never consume a nonce.** Sending one is harmless; it is ignored.
+- **Queries show a nonce but never consume it.** `me`, `todos` and `getTodo`
+  are refused without one (`NONCE_MISSING`), and the same nonce serves as many
+  reads as you like - only a mutation retires it.
+  Which operations are checked at all is `NONCE_ENABLED_OPERATIONS` on the
+  server; it says so in its startup log.
 - **Mutations consume exactly one nonce** and return a replacement in the
   response payload. Store it and use it for the next mutation.
 - **One protected mutation per request.** GraphQL will happily execute several

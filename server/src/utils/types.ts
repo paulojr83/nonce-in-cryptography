@@ -18,6 +18,7 @@ export interface AuthContext {
 export interface NonceValidationContext {
   nonce_id?: string;
   nonce_valid: boolean;
+  nonce_enforced: boolean;
   nonce_error?: ErrorResponse;
 }
 

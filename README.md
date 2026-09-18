@@ -14,7 +14,8 @@ and so does spending one nonce on two operations.
 
 ## Quick start
 
-Requires Node.js 18+.
+Requires Node.js 20.12+ (for `process.loadEnvFile`, which is how `server/.env`
+is read).
 
 ```bash
 npm install
@@ -121,8 +122,10 @@ answers the server's nonce with `sha256(HA1 : nonce : cnonce)`, and the server
 recomputes it from a stored verifier. Capturing that exchange buys nothing - the
 challenge is a nonce, spent by the attempt that answers it, right or wrong.
 
-**Queries never consume a nonce.** A read that spent one would break the
-rotation every mutation depends on.
+**Queries never consume a nonce.** They do have to show one - `me`, `todos`
+and `getTodo` are checked like any protected field - but the token survives
+the read. A read that spent one would break the rotation every mutation
+depends on, and would need a fresh nonce for every list the page draws.
 
 **A failed mutation still hands back a nonce.** Consumption happens before the
 resolver runs — that is what makes it atomic — so a mutation that then fails on
@@ -314,15 +317,102 @@ The last three cannot succeed on a retry at all. Full examples in
 
 ## Configuration
 
+Copy `server/.env.example` to `server/.env` and the server reads it at startup
+— through Node's own env-file parser, so there is nothing to install. A
+variable already set in the shell wins over the file, and the file is optional:
+without one, every default below applies.
+
+```bash
+cp server/.env.example server/.env
+```
+
 Nothing is required — every value has a working default. The ones worth knowing:
 
 | Variable | Default | Why you would change it |
 | -------- | ------- | ----------------------- |
 | `NONCE_TTL` | `300000` (5 min) | Shorter narrows the replay window |
 | `NONCE_LENGTH` | `32` | Bytes of entropy per nonce (minimum 32) |
+| `NONCE_ENABLED_OPERATIONS` | all | Which operations validate a nonce — see below |
 | `SESSION_TTL` | `86400000` (24h) | How long a login lasts |
 | `DATABASE_URL` | `http://localhost:3001` | Where json-server is |
 | `JWT_SECRET` | dev default | **Required in production**, min 32 chars |
+
+### Switching the nonce off, one operation at a time
+
+`NONCE_ENABLED_OPERATIONS` lists the operations that validate their nonce —
+reads and writes alike:
+
+| | Fields | What validation means |
+| --- | --- | --- |
+| Mutations | `createTodo`, `updateTodo`, `deleteTodo`, `logout` | The nonce is checked **and spent** |
+| Queries | `me`, `todos`, `getTodo` | The nonce is checked and **left unspent** |
+
+A read that spent a nonce would retire a single-use token for an operation
+that changed nothing, and the page would need a fresh one for every list it
+draws. So one nonce proves the same live session across many reads, and only a
+mutation retires it.
+
+| Value | Effect |
+| ----- | ------ |
+| no such line (or no `.env`) | every protected operation — the default |
+| `*` | the same, said out loud |
+| `todos,updateTodo` | those two; everything else runs without a nonce |
+| empty, or `none` | nothing validates anything |
+
+```bash
+NONCE_ENABLED_OPERATIONS=todos,updateTodo,deleteTodo,logout npm run dev --workspace=server
+```
+
+With that, `createTodo`, `me` and `getTodo` answer without a nonce, and the
+client sends them in the clear.
+
+The list is read literally: what is in it validates a nonce, what is not does
+not. Only an absent line falls back to "all", so a machine with no `.env` is
+protected. A mutation left out of the list is not removed from
+`PROTECTED_MUTATIONS` (nor a query from `PROTECTED_QUERIES`) — the switch only
+decides whether the check runs — so putting it back restores the check with no
+code change. Rows written while the
+switch is off carry `created_by_nonce_id: "nonce-disabled"`, and the server
+says which mutations are exempt in its startup log.
+
+The old `NONCE_DISABLED_OPERATIONS` is refused at startup rather than ignored.
+
+**The client follows.** An operation the server is not validating is sent as a
+plain GraphQL request — no nonce, and no envelope, since the nonce is what
+keys the envelope:
+
+```jsonc
+// an exempt operation                         // one that still validates
+{ "query": "mutation CreateTodoMutation…",     { "v": 1,
+  "variables": { "input": { … } },               "nid": "3612ef06…",
+  "operationName": "CreateTodoMutation" }        "iv": "sAur49Cp…",
+                                                 "ct": "j2pZ3K5GYe4Ptqm…" }
+```
+
+It learns which ones at build time, not over the wire: `vite.config.ts` reads
+`NONCE_ENABLED_OPERATIONS` out of `server/.env` and injects that one value
+into the bundle, so there is still a single place to change it and nothing on
+the network announces which operations are unprotected. An edit needs the dev
+server restarted — the same restart the API needs anyway.
+
+Sealing an exempt operation would still work — the server opens it either way
+— but it would show a client encrypting for a check that is not running.
+
+The client decides by parsing the document it is about to send, resolving
+fragment spreads to find the root field: `GetTodosQuery` selects nothing but
+`...GetTodosQuery_todos`, and the field the policy is keyed on, `todos`, is
+inside the fragment. A wrong guess in the "no nonce needed" direction would
+have the server refuse a read the client could have sent correctly, which is
+why it is parsed rather than pattern-matched. The server parses the same
+document and remains the one that decides.
+
+What it is for: watching one mutation misbehave without it. Switch off
+`updateTodo`, replay the same request twice, and both go through — the failure
+`scripts/verify-update-failures.js` normally proves cannot happen. (With the
+switch off those checks fail, which is exactly what they are there to catch.)
+It is a development switch: an operation has no replay or CSRF protection
+while it is off. `server/src/utils/nonce-flags.ts` holds it, and exports
+`setNonceEnforcement(field, enforced)` for moving it at runtime.
 
 ---
 

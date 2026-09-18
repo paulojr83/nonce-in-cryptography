@@ -70,27 +70,16 @@ function toHex(bytes: Uint8Array): string {
     .join('');
 }
 
-/** sha256 as lowercase hex - the form both the digest and the envelope use. */
 export async function sha256Hex(value: string): Promise<string> {
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
   return toHex(new Uint8Array(digest));
 }
 
 export interface Handshake {
-  /** Raw public point, base64, for the server to compute the same secret */
   publicKey: string;
-  /** Finish the agreement once the server's public point comes back */
   complete: (serverPublicKeyBase64: string) => Promise<Uint8Array>;
 }
 
-/**
- * Start a key agreement.
- *
- * The private half never leaves this function's closure, and the secret it
- * produces is never sent: both sides compute it, nobody transmits it. That is
- * what keeps an eavesdropper out, and it is why the key cannot simply be the
- * nonce - the nonce has to travel.
- */
 export async function startHandshake(): Promise<Handshake> {
   const pair = await crypto.subtle.generateKey({ name: 'ECDH', namedCurve: 'P-256' }, false, [
     'deriveBits',
@@ -120,10 +109,6 @@ export async function startHandshake(): Promise<Handshake> {
   };
 }
 
-/**
- * The key for one message: the session secret, salted with this message's
- * nonce hash and separated by direction.
- */
 async function deriveMessageKey(
   sharedSecret: Uint8Array,
   nonceHash: string,
@@ -177,7 +162,6 @@ export async function seal(
   };
 }
 
-/** Returns null for anything that does not authenticate. */
 export async function open(
   envelope: TransportEnvelope,
   sharedSecret: Uint8Array

@@ -5,6 +5,7 @@ import type {
   Variables,
 } from 'relay-runtime';
 import { postGraphQL, readSecret } from '../crypto/channel';
+import { disabledOperations, isNonceEnforcedFor, rootFieldsOf } from './nonce-policy';
 
 export const NONCE_ERROR_CODES = [
   'NONCE_MISSING',
@@ -127,18 +128,31 @@ export function createNonceFetch(options: NonceMiddlewareOptions) {
     }
   };
 
+  const exempt = disabledOperations();
+  if (exempt.length > 0) {
+    log('these operations take no nonce', { operations: exempt });
+  }
+
   async function send(
     params: RequestParameters,
     variables: Variables,
     attempt: number
   ): Promise<GraphQLResponseLike> {
     const isMutation = params.operationKind === 'mutation';
-    const nonce = getNonce();
-    const secret = getSecret();
 
-    // The nonce keys the envelope, so it goes out with reads too - but only a
-    // mutation ever consumes it, and that decision stays on the server.
-    if (!nonce) {
+   const fields = rootFieldsOf(params.text);
+
+   const unprotected =
+      fields.length > 0 && !fields.some((field) => isNonceEnforcedFor(field));
+
+    const nonce = unprotected ? null : getNonce();
+    const secret = unprotected ? null : getSecret();
+
+    if (unprotected) {
+      log(`${params.name} is exempt from nonce validation - sending in the clear`, {
+        fields,
+      });
+    } else if (!nonce) {
       log(`sending ${params.name} without a nonce`, { attempt, isMutation });
     }
 

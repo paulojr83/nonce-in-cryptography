@@ -1,6 +1,6 @@
 /**
  * Yoga GraphQL Server Entry Point
- * 
+ *
  * Initializes and starts the GraphQL server with:
  * - Nonce validation middleware for CSRF protection
  * - Authentication middleware for JWT validation
@@ -30,18 +30,23 @@ import {
   TransportError,
 } from './middleware/transport-middleware';
 import { NonceCleanupJob } from './jobs/nonce-cleanup-job';
+import { getNoncePolicy } from './utils/nonce-flags';
 import { authResolvers } from './resolvers/auth-resolvers';
 import { queryResolvers } from './resolvers/query-resolvers';
 import { todoResolvers } from './resolvers/todo-resolvers';
 import { bootstrapStorage, shutdownStorage } from './data/bootstrap';
+import { getEnv } from './utils/env';
 
-// Set log level based on environment
-const logLevel = (process.env.LOG_LEVEL as LogLevel) || LogLevel.INFO;
-logger.setLevel(logLevel);
+// Configuration, read once. This is also what loads server/.env, and what
+// fails fast on a bad value - a missing production JWT_SECRET stops the
+// process here rather than at the first request that needs it.
+const env = getEnv();
 
-// Configuration
-const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 4000;
-const NODE_ENV = process.env.NODE_ENV || 'development';
+// The logger's levels are upper case; the environment writes them lower case
+logger.setLevel(env.logLevel.toUpperCase() as LogLevel);
+
+const PORT = env.port;
+const NODE_ENV = env.nodeEnv;
 
 /**
  * GraphQL Resolvers
@@ -246,6 +251,16 @@ server.listen(PORT, async () => {
     environment: NODE_ENV,
     graphqlEndpoint: `http://localhost:${PORT}/graphql`,
   });
+
+  // Running an operation without its nonce is a deliberate choice, so say so
+  // once at startup rather than leaving it to whoever reads the debug log
+  const { disabledOperations } = getNoncePolicy();
+  if (disabledOperations.length > 0) {
+    logger.warn(
+      'Nonce enforcement is switched off for some operations - replay and CSRF protection are not active there',
+      { operations: disabledOperations }
+    );
+  }
 
   // Expired nonces are deleted periodically so the table cannot grow forever
   NonceCleanupJob.initialize({

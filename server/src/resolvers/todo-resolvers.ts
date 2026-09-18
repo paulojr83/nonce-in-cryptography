@@ -4,38 +4,38 @@ import { storage } from '../data/storage-layer';
 import { logger } from '../utils/logger';
 import type { GraphQLContext } from '../utils/types';
 import { requireAuth } from '../middleware/auth-middleware';
+import { assertNonceValid } from '../middleware/nonce-validation-middleware';
 import { ApplicationError, ErrorCode } from '../utils/errors';
 import { getRequestInfo } from '../utils/request-info';
+import { NONCE_DISABLED_ID } from '../utils/nonce-flags';
 import { toGraphQLTodo } from './query-resolvers';
 import { Todo } from '../types/entities';
- 
+
 interface MutationContext {
   userId: string;
   sessionId: string;
   nonceId: string;
 }
- 
+
 function requireValidNonce(context: GraphQLContext, operation: string): MutationContext {
   const { user_id, session_id } = requireAuth(context);
 
-  if (!context.nonce_valid) {
-    const error = context.nonce_error;
+  assertNonceValid(context, operation);
 
-    logger.warn('Protected mutation rejected: nonce not valid', {
-      operation,
-      userId: user_id,
-      errorCode: error?.error_code,
-    });
-
-    throw new ApplicationError(
-      (error?.error_code as ErrorCode) ?? ErrorCode.NONCE_INVALID,
-      error?.error_message ?? 'CSRF token validation failed',
-      403,
-      error ? { suggested_action: error.suggested_action } : undefined
-    );
-  }
- 
   if (!context.nonce_id) {
+    if (!context.nonce_enforced) {
+      logger.warn('Protected mutation running with nonce enforcement off', {
+        operation,
+        userId: user_id,
+      });
+
+      return {
+        userId: user_id,
+        sessionId: session_id,
+        nonceId: NONCE_DISABLED_ID,
+      };
+    }
+
     logger.error(
       'Protected mutation reached resolver without a consumed nonce',
       undefined,
@@ -51,7 +51,7 @@ function requireValidNonce(context: GraphQLContext, operation: string): Mutation
 
   return { userId: user_id, sessionId: session_id, nonceId: context.nonce_id };
 }
- 
+
 async function requireOwnedTodo(todoId: string, userId: string): Promise<Todo> {
   const todo = await storage.todos.findById(todoId);
 
@@ -66,7 +66,7 @@ async function requireOwnedTodo(todoId: string, userId: string): Promise<Todo> {
 
   return todo;
 }
- 
+
 async function issueFreshNonce(
   context: GraphQLContext,
   userId: string,
@@ -110,7 +110,7 @@ async function rotateOnFailure<T>(
     throw error;
   }
 }
- 
+
 export const todoResolvers = {
   Mutation: {
 

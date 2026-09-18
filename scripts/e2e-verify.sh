@@ -69,11 +69,13 @@ check "a wrong digest is refused"      "$(grep -q 'Invalid email or password' <<
 UNKNOWN=$(gql -d '{"query":"mutation{getNonce(username:\"nobody@example.com\"){nonce}}"}')
 check "an unknown account still gets a challenge" "$([ -n "$(field "$UNKNOWN" nonce)" ] && echo 0 || echo 1)"
 
-echo "== 3. Queries need no nonce =="
-TODOS=$(gql -H "Authorization: Bearer $TOKEN" -d '{"query":"query{todos(first:10){totalCount pageInfo{hasNextPage endCursor}}}"}')
+echo "== 3. Queries show a nonce but do not spend it =="
+NO_NONCE_READ=$(gql -H "Authorization: Bearer $TOKEN" -d '{"query":"query{me{id email}}"}')
+check "a read without a nonce is refused" "$(grep -q 'NONCE_MISSING' <<<"$NO_NONCE_READ" && echo 0 || echo 1)"
+TODOS=$(gql -H "Authorization: Bearer $TOKEN" -H "X-NONCE: $NONCE" -d '{"query":"query{todos(first:10){totalCount pageInfo{hasNextPage endCursor}}}"}')
 check "todos query succeeds"           "$(grep -q '"totalCount"' <<<"$TODOS" && echo 0 || echo 1)"
-ME=$(gql -H "Authorization: Bearer $TOKEN" -d '{"query":"query{me{id email}}"}')
-check "me query succeeds"              "$(grep -q "$EMAIL" <<<"$ME" && echo 0 || echo 1)"
+ME=$(gql -H "Authorization: Bearer $TOKEN" -H "X-NONCE: $NONCE" -d '{"query":"query{me{id email}}"}')
+check "me query succeeds on the same nonce" "$(grep -q "$EMAIL" <<<"$ME" && echo 0 || echo 1)"
 
 echo "== 4. Mutation without a nonce is rejected =="
 NO_NONCE=$(gql -H "Authorization: Bearer $TOKEN" -d '{"query":"mutation{createTodo(input:{title:\"no nonce\"}){todo{id}}}"}')
@@ -103,7 +105,7 @@ echo "== 9. Delete rotates and removes =="
 DELETE=$(gql -H "Authorization: Bearer $TOKEN" -H "X-NONCE: $UPD_NONCE" -d "{\"query\":\"mutation{deleteTodo(id:\\\"$TODO_ID\\\"){todo{id} nonce}}\"}")
 DEL_NONCE=$(field "$DELETE" nonce)
 check "delete succeeded"               "$(grep -q "$TODO_ID" <<<"$DELETE" && echo 0 || echo 1)"
-GONE=$(gql -H "Authorization: Bearer $TOKEN" -d "{\"query\":\"query{getTodo(id:\\\"$TODO_ID\\\"){id}}\"}")
+GONE=$(gql -H "Authorization: Bearer $TOKEN" -H "X-NONCE: $DEL_NONCE" -d "{\"query\":\"query{getTodo(id:\\\"$TODO_ID\\\"){id}}\"}")
 check "todo is gone"                   "$(grep -q 'TODO_NOT_FOUND' <<<"$GONE" && echo 0 || echo 1)"
 
 echo "== 10. One nonce authorises one operation =="

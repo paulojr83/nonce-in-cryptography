@@ -3,6 +3,7 @@ import { storage } from '../data/storage-layer';
 import { logger } from '../utils/logger';
 import type { GraphQLContext } from '../utils/types';
 import { requireAuth } from '../middleware/auth-middleware';
+import { assertNonceValid } from '../middleware/nonce-validation-middleware';
 import { ApplicationError, ErrorCode } from '../utils/errors';
 import { Todo } from '../types/entities';
 
@@ -86,6 +87,7 @@ export const queryResolvers = {
   Query: {
     me: async (_: unknown, __: unknown, context: GraphQLContext): Promise<unknown> => {
       const { user_id } = requireAuth(context);
+      assertNonceValid(context, 'me');
       logger.debug('Resolving Query.me', { userId: user_id });
 
       const user = await AuthService.getUserById(user_id);
@@ -106,6 +108,7 @@ export const queryResolvers = {
       context: GraphQLContext
     ): Promise<unknown> => {
       const { user_id } = requireAuth(context);
+      assertNonceValid(context, 'todos');
       logger.debug('Resolving Query.todos', { userId: user_id, first, after });
 
       return buildTodoConnection(user_id, first, after);
@@ -117,6 +120,7 @@ export const queryResolvers = {
       context: GraphQLContext
     ): Promise<unknown> => {
       const { user_id } = requireAuth(context);
+      assertNonceValid(context, 'getTodo');
       logger.debug('Resolving Query.getTodo', { userId: user_id, todoId: id });
 
       const todo = await storage.todos.findById(id);
@@ -140,7 +144,7 @@ export const queryResolvers = {
       { first, after }: { first?: number | null; after?: string | null },
       context: GraphQLContext
     ): Promise<unknown> => {
-      const { user_id } = requireAuth(context); 
+      const { user_id } = requireAuth(context);
       if (parent.id !== user_id) {
         throw new ApplicationError(
           ErrorCode.NOT_AUTHORIZED,

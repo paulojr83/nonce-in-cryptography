@@ -1,17 +1,3 @@
-/**
- * Authentication Middleware for GraphQL
- * 
- * This middleware:
- * - Extracts JWT token from Authorization header (Bearer token)
- * - Verifies token signature using JWT_SECRET
- * - Checks token expiration
- * - Attaches user_id and session_id to GraphQL context
- * - Returns 401 errors for invalid/missing tokens
- * - Skips validation for public mutations (login)
- * 
- * Requirements: 5.0, 12.0
- */
-
 import jwt from 'jsonwebtoken';
 import { logger } from '../utils/logger';
 import { AuthContext } from '../utils/types';
@@ -32,13 +18,6 @@ export interface RequestLike {
   };
 }
 
-/**
- * Authentication middleware for GraphQL requests
- * Validates JWT token from Authorization header
- *
- * @param request - HTTP request object with headers
- * @returns AuthContext with authentication status and user information
- */
 export async function authMiddleware(
   request: RequestLike | undefined
 ): Promise<AuthContext> {
@@ -123,7 +102,6 @@ export async function authMiddleware(
         };
       }
 
-      // Generic JWT error
       logger.error('JWT verification error', error as Error);
       return {
         authenticated: false,

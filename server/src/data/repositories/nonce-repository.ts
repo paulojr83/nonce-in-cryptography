@@ -21,18 +21,10 @@ export interface INonceRepository {
 
 export class NonceRepository implements INonceRepository {
   private data: Map<string, Nonce> = new Map();
-
-  /** nonce_hash -> id, so validation can look a nonce up by its hash */
   private hashIndex: Map<string, string> = new Map();
-
-  /** user_id -> nonce ids, for revoking every nonce a user holds */
   private userIdIndex: Map<string, Set<string>> = new Map();
 
   async create(nonce: Nonce): Promise<Nonce> {
-    // With 256 bits of entropy this never fires. It exists because silently
-    // overwriting the index entry is how a "random nonce" quietly stops being
-    // used only once - the failure the article warns about for purely random
-    // nonces - and a loud error beats a silent collision.
     if (this.hashIndex.has(nonce.nonce_hash)) {
       throw new Error(`Nonce hash collision detected for ${nonce.id}`);
     }
@@ -46,7 +38,6 @@ export class NonceRepository implements INonceRepository {
     this.userIdIndex.get(nonce.user_id)!.add(nonce.id);
 
     persistCreate('nonces', nonce);
-
     return nonce;
   }
 
@@ -99,13 +90,6 @@ export class NonceRepository implements INonceRepository {
     return updated;
   }
 
-  /**
-   * Update only if the record still satisfies `condition`.
-   *
-   * This is what makes consumption single-use: two concurrent requests both
-   * read `used === false`, but only the first one to get here writes. The
-   * second finds the condition false and is told it lost.
-   */
   async updateAtomic(
     id: string,
     updates: UpdateOptions,
@@ -117,8 +101,6 @@ export class NonceRepository implements INonceRepository {
     }
 
     this.data.set(id, { ...nonce, ...updates });
-
-    // The decision has already been made in memory; this only records it
     persistUpdate('nonces', id, updates);
 
     return true;
@@ -176,12 +158,6 @@ export class NonceRepository implements INonceRepository {
       .length;
   }
 
-  /**
-   * Match a record against a filter.
-   *
-   * Supports the two operators the cleanup job needs: `$lt` on a timestamp and
-   * `$in` on a status.
-   */
   private matches(nonce: Nonce, filter: QueryFilter): boolean {
     return Object.entries(filter).every(([key, value]) => {
       if (key === 'expires_at') {
