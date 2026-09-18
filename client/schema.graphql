@@ -1,0 +1,387 @@
+# GENERATED FILE - do not edit by hand.
+# Synced from server/src/typedefs.ts by scripts/sync-schema.mjs.
+scalar DateTime
+
+  """
+  User account in the system
+  """
+  type User {
+    """User unique identifier"""
+    id: ID!
+    
+    """User email address"""
+    email: String!
+    
+    """User account creation timestamp"""
+    createdAt: DateTime!
+    
+    """Todos owned by this user"""
+    todos(first: Int, after: String): TodoConnection!
+  }
+
+  """
+  Session representing an authenticated user
+  """
+  type Session {
+    """Session unique identifier"""
+    id: ID!
+    
+    """User associated with this session"""
+    userId: ID!
+    
+    """Session expiration timestamp"""
+    expiresAt: DateTime!
+    
+    """Current status of the session"""
+    status: SessionStatus!
+  }
+
+  """
+  Session status enumeration
+  """
+  enum SessionStatus {
+    """Session is currently active and valid"""
+    ACTIVE
+    
+    """Session has expired due to TTL"""
+    EXPIRED
+    
+    """Session was manually revoked"""
+    REVOKED
+  }
+
+  """
+  Nonce security token for CSRF protection
+  """
+  type Nonce {
+    """Nonce unique identifier"""
+    id: ID!
+    
+    """User who owns this nonce"""
+    userId: ID!
+    
+    """Session associated with this nonce"""
+    sessionId: ID!
+    
+    """Nonce creation timestamp"""
+    createdAt: DateTime!
+    
+    """Nonce expiration timestamp"""
+    expiresAt: DateTime!
+    
+    """Current status of the nonce"""
+    status: NonceStatus!
+    
+    """Whether this nonce has been consumed"""
+    used: Boolean!
+  }
+
+  """
+  Nonce status enumeration
+  """
+  enum NonceStatus {
+    """Nonce is currently active and can be used"""
+    ACTIVE
+    
+    """Nonce has expired due to TTL"""
+    EXPIRED
+    
+    """Nonce was manually revoked"""
+    REVOKED
+  }
+
+  """
+  Todo item for a user
+  """
+  type Todo {
+    """Todo unique identifier"""
+    id: ID!
+    
+    """User who owns this todo"""
+    userId: ID!
+    
+    """Todo title"""
+    title: String!
+    
+    """Todo description"""
+    description: String
+    
+    """Completion status"""
+    completed: Boolean!
+    
+    """Creation timestamp"""
+    createdAt: DateTime!
+    
+    """Last update timestamp"""
+    updatedAt: DateTime!
+  }
+
+  """
+  Relay connection for paginated todos
+  """
+  type TodoConnection {
+    """Edges containing todo nodes and cursors"""
+    edges: [TodoEdge!]!
+    
+    """Pagination metadata"""
+    pageInfo: PageInfo!
+    
+    """Total count of todos"""
+    totalCount: Int!
+  }
+
+  """
+  Edge in a todo connection
+  """
+  type TodoEdge {
+    """The todo node"""
+    node: Todo!
+    
+    """Cursor for pagination"""
+    cursor: String!
+  }
+
+  """
+  PageInfo for Relay pagination
+  """
+  type PageInfo {
+    """Whether there are more items after current page"""
+    hasNextPage: Boolean!
+    
+    """Whether there are items before current page"""
+    hasPreviousPage: Boolean!
+    
+    """Cursor for first item in current page"""
+    startCursor: String
+    
+    """Cursor for last item in current page"""
+    endCursor: String
+  }
+
+  """
+  Payload returned from login mutation
+  """
+  type AuthPayload {
+    """Authenticated user"""
+    user: User!
+    
+    """User session"""
+    session: Session!
+    
+    """Fresh nonce for next operation"""
+    nonce: String!
+    
+    """JWT token for future requests"""
+    token: String!
+
+  }
+
+  """
+  Payload returned from todo mutations
+  """
+  type TodoPayload {
+    """Created or modified todo"""
+    todo: Todo!
+    
+    """Fresh nonce for next operation"""
+    nonce: String!
+  }
+
+  """
+  Answer to a login challenge request
+  """
+  type ChallengePayload {
+    """
+    Single-use challenge to digest the password against. Expires in two minutes.
+    """
+    nonce: String!
+
+    """
+    This server's ECDH public key, when the caller offered one of its own.
+    Null for a client that did not ask for a handshake; that session then has
+    no transport key and must send its requests in the clear.
+    """
+    serverPublicKey: String
+  }
+
+  """
+  Payload returned when a client asks for a fresh nonce
+  """
+  type NoncePayload {
+    """Fresh nonce for the next operation"""
+    nonce: String!
+  }
+
+  """
+  Payload returned from logout mutation
+  """
+  type LogoutPayload {
+    """Whether logout was successful"""
+    success: Boolean!
+    
+    """Logout message"""
+    message: String!
+  }
+
+  """
+  Root Query type for read operations
+  """
+  type Query {
+    """Get current authenticated user"""
+    me: User
+    
+    """Get paginated todos for current user"""
+    todos(
+      """Number of todos to return"""
+      first: Int
+      
+      """Cursor for pagination"""
+      after: String
+    ): TodoConnection!
+    
+    """Get a single todo by ID"""
+    getTodo(id: ID!): Todo
+  }
+
+  """
+  Root Mutation type for state-changing operations
+  """
+  type Mutation {
+    """
+    Ask for a login challenge, and optionally agree on a transport key.
+
+    Public: a client with no credentials cannot authenticate to ask for the
+    thing it needs in order to authenticate. Answers identically whether or not
+    the account exists.
+    """
+    getNonce(
+      """Account the challenge is for"""
+      username: String!
+
+      """
+      ECDH P-256 public key, raw and base64. Offering one agrees a secret that
+      encrypts every later payload, including this login's own response.
+      """
+      clientPublicKey: String
+    ): ChallengePayload!
+
+    """
+    Answer a login challenge.
+
+    The password is not a parameter. The client sends a digest over the
+    challenge, its own cnonce and the password:
+
+      response = sha256( ha1 : nonce : cnonce )
+      ha1      = sha256( username : nonce-todo : password )
+
+    The challenge is spent by this call whether the answer is right or wrong,
+    so a captured login cannot be replayed and a wrong one cannot be retried
+    against the same challenge.
+    """
+    login(
+      """Account being authenticated"""
+      username: String!
+
+      """The challenge this answers, as issued by getNonce"""
+      nonce: String!
+
+      """Client-chosen nonce, so the server does not pick every input"""
+      cnonce: String!
+
+      """The digest"""
+      response: String!
+    ): AuthPayload!
+    
+    """
+    Issue a fresh nonce for the current session.
+
+    Requires authentication but no nonce: this is how a client whose nonce was
+    spent or expired gets a usable one back, instead of having to log in again.
+    """
+    refreshNonce: NoncePayload!
+
+    """
+    Logout current user.
+    Revokes session and all associated nonces.
+    """
+    logout: LogoutPayload!
+    
+    """
+    Create a new todo.
+    Requires valid nonce for CSRF protection.
+    Returns created todo and new nonce.
+    """
+    createTodo(input: CreateTodoInput!): TodoPayload!
+    
+    """
+    Update existing todo.
+    Requires valid nonce for CSRF protection.
+    Returns updated todo and new nonce.
+    """
+    updateTodo(id: ID!, input: UpdateTodoInput!): TodoPayload!
+    
+    """
+    Delete a todo.
+    Requires valid nonce for CSRF protection.
+    Returns success status and new nonce.
+    """
+    deleteTodo(id: ID!, nonce: String): TodoPayload!
+  }
+
+  """
+  Input for creating a todo
+  """
+  input CreateTodoInput {
+    """Todo title (required)"""
+    title: String!
+    
+    """Todo description (optional)"""
+    description: String
+    
+    """
+    CSRF nonce token.
+
+    Optional: the canonical channel is the X-NONCE header. It is accepted here
+    for callers that would rather send it in the request body.
+    """
+    nonce: String
+  }
+
+  """
+  Input for updating a todo
+  """
+  input UpdateTodoInput {
+    """Updated title"""
+    title: String
+    
+    """Updated description"""
+    description: String
+    
+    """Updated completion status"""
+    completed: Boolean
+    
+    """
+    CSRF nonce token.
+
+    Optional: the canonical channel is the X-NONCE header. It is accepted here
+    for callers that would rather send it in the request body.
+    """
+    nonce: String
+  }
+
+  """
+  Represents an error in a GraphQL operation
+  """
+  type ErrorResponse {
+    """Error code for programmatic handling"""
+    error_code: String!
+    
+    """Human-readable error message"""
+    error_message: String!
+    
+    """Suggested action for the user"""
+    suggested_action: String!
+    
+    """Additional error details"""
+    details: String
+  }

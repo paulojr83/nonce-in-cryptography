@@ -1,0 +1,11 @@
+{
+  "src": "./src",
+  "schema": "./schema.graphql",
+  "language": "typescript",
+  "artifactDirectory": "./src/__generated__",
+  "eagerEsModules": true,
+  "excludes": ["**/node_modules/**", "**/__generated__/**", "**/dist/**"],
+  "customScalarTypes": {
+    "DateTime": "string"
+  }
+}

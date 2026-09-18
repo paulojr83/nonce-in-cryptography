@@ -1,0 +1,42 @@
+{
+  "name": "@nonce-crypto/server",
+  "version": "1.0.0",
+  "description": "GraphQL server for nonce-based authentication",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "seed": "ts-node --transpile-only src/scripts/seed-database.ts",
+    "db": "json-server data/db.json --port 3001",
+    "dev:full": "concurrently \"npm:db\" \"npm:dev\"",
+    "test": "vitest run --passWithNoTests",
+    "test:ui": "vitest --ui",
+    "test:coverage": "vitest --coverage",
+    "lint": "eslint src --ext .ts",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "graphql-yoga": "^4.0.5",
+    "jsonwebtoken": "^9.0.2",
+    "node-cache": "^5.1.2",
+    "node-cron": "^3.0.2"
+  },
+  "devDependencies": {
+    "@types/jsonwebtoken": "^9.0.7",
+    "@types/node": "^20.10.0",
+    "@typescript-eslint/eslint-plugin": "^6.13.0",
+    "@typescript-eslint/parser": "^6.13.0",
+    "eslint": "^8.54.0",
+    "json-server": "^0.17.4",
+    "prettier": "^3.1.0",
+    "ts-node": "^10.9.1",
+    "ts-node-dev": "^2.0.0",
+    "typescript": "^5.3.3",
+    "vitest": "^0.34.6"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
